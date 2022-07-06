@@ -1,0 +1,9 @@
+{
+    "email": "",
+    "password": "",
+    "format": 5,
+    "outPath": "Napster downloads",
+    "albumTemplate": "{{.albumArtist}} - {{.album}}",
+    "trackTemplate": "{{.trackPad}}. {{.title}}",
+    "keepCover": true
+}
