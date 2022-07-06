@@ -13,8 +13,8 @@ Configure any other options if needed.
 |password|Password.
 |format|Download quality. 1 = 64 Kbps AAC, 2 = 128 Kbps MP3, 3 = 192 Kbps AAC, 4 = 320 Kbps AAC, 5 = FLAC.
 |outPath|Where to download to. Path will be made if it doesn't already exist.
-|albumTemplate|Album folder naming template. Vars: album, albumArtist, label, copyright, upc, year.
-|trackTemplate|Track filename naming template. Vars: album, albumArtist, artist, isrc, title, track, trackPad, trackTotal, upc, year.
+|albumTemplate|Album folder naming template. Vars: album, albumArtist, copyright, label, upc, year.
+|trackTemplate|Track filename naming template. Vars: album, albumArtist, artist, copyright, isrc, label, title, track, trackPad, trackTotal, upc, year.
 |keepCover|true = don't delete covers from album folders.
 
 
