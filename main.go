@@ -33,9 +33,9 @@ import (
 const (
 	apiBase   = "https://api.napster.com/"
 	apiKey    = "ZTJlOWNhZGUtNzlmZS00ZGU2LTkwYjMtZDk1ODRlMDkwODM5"
-	authToken = "Basic WlRKbE9XTmhaR1V0TnpsbVpTMDBaR1UyTFRrd1lqTXRaRGsxT0RSbE" +
-		"1Ea3dPRE01Ok1UUmpaVFZqTTJFdE9HVmxaaTAwT1RVM0xXRm1Oamt0TlRsbE9ERmhObVl5TnpJNQ=="
-	userAgent     = "android/8.0.0.1010/NapsterUS"
+	authToken = "Basic WlRKbE9XTmhaR1V0TnpsbVpTMDBaR1UyTFRrd1lqTXRaRGsxT0RS" +
+		"bE1Ea3dPRE01Ok1UUmpaVFZqTTJFdE9HVmxaaTAwT1RVM0xXRm1Oamt0TlRsbE9ERmhObVl5TnpJNQ=="
+	userAgent     = "android/8.0.1.1012/NapsterGlobal"
 	regexString   = `^http(?:s|)://(?:play|web).napster.com/album/([aA]lb.\d+)(?:/|)$`
 	trackTemplate = "{{.trackPad}}. {{.title}}"
 	albumTemplate = "{{.albumArtist}} - {{.album}}"
@@ -217,9 +217,9 @@ func fileExists(path string) (bool, error) {
 	return false, err
 }
 
-func checkUrl(url string) string {
+func checkUrl(_url string) string {
 	regex := regexp.MustCompile(regexString)
-	match := regex.FindStringSubmatch(url)
+	match := regex.FindStringSubmatch(_url)
 	if match != nil {
 		return match[1]
 	}
@@ -698,6 +698,10 @@ func main() {
 			handleErr("Failed to get album metadata.", err, false)
 			continue
 		}
+		if !(len(_albumMeta.Albums) > 0) {
+			fmt.Println("The API didn't return album metadata.")
+			continue
+		}
 		albumMeta := _albumMeta.Albums[0]
 		parsedAlbMeta := parseAlbumMeta(&albumMeta)
 		albumFolder := parseTemplate(cfg.AlbumTemplate, parsedAlbMeta, true)
@@ -718,14 +722,17 @@ func main() {
 			handleErr("Failed to get album tracks metadata.", err, false)
 			continue
 		}
-
+		trackTotal := len(albTracksMeta.Tracks)
+		if !(trackTotal > 0) {
+			fmt.Println("The API didn't return album tracks metadata.")
+			continue
+		}
 		coverPath := filepath.Join(albumPath, "cover.jpg")
 		err = downloadCover(albumId, coverPath)
 		if err != nil {
 			handleErr("Failed to get cover.", err, false)
 			coverPath = ""
 		}
-		trackTotal := len(albTracksMeta.Tracks)
 		for trackNum, track := range albTracksMeta.Tracks {
 			trackNum++
 			if !track.IsStreamable {
