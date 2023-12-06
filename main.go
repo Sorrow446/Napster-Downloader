@@ -309,9 +309,6 @@ func parseAlbumMeta(meta *Album) map[string]string {
 		released = released[:4]
 	}
 
-	fmt.Println("XXXXX")
-	fmt.Println(released)
-
 	parsedMeta := map[string]string{
 		"album":       meta.Name,
 		"albumArtist": meta.ArtistName,
