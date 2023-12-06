@@ -304,13 +304,21 @@ func getAlbumMeta(albumId, catalog, lang string) (*AlbumMeta, error) {
 }
 
 func parseAlbumMeta(meta *Album) map[string]string {
+	released := meta.OriginallyReleased
+	if released != "" {
+		released = released[:4]
+	}
+
+	fmt.Println("XXXXX")
+	fmt.Println(released)
+
 	parsedMeta := map[string]string{
 		"album":       meta.Name,
 		"albumArtist": meta.ArtistName,
 		"label":       meta.Label,
 		"copyright":   meta.Copyright,
 		"upc":         meta.UPC,
-		"year":        strconv.Itoa(meta.OriginallyReleased.Year()),
+		"year":        released,
 	}
 	return parsedMeta
 }

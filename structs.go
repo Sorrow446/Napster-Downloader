@@ -1,7 +1,5 @@
 package main
 
-import "time"
-
 type Transport struct{}
 
 type WriteCounter struct {
@@ -46,7 +44,7 @@ type UserInfo struct {
 	Type                         string    `json:"type"`
 	Href                         string    `json:"href"`
 	ID                           string    `json:"id"`
-	Created                      time.Time `json:"created"`
+	Created                      string `json:"created"`
 	OriginCode                   string    `json:"originCode"`
 	Lang                         string    `json:"lang"`
 	UserName                     string    `json:"userName"`
@@ -102,7 +100,7 @@ type UserInfo struct {
 		} `json:"entitlements"`
 		BillingPartnerCode string    `json:"billingPartnerCode"`
 		Catalog            string    `json:"catalog"`
-		CreateDate         time.Time `json:"createDate"`
+		CreateDate         string `json:"createDate"`
 		ProductCode        string    `json:"productCode"`
 		ProductName        string    `json:"productName"`
 		ProductServiceTerm string    `json:"productServiceTerm"`
@@ -138,8 +136,8 @@ type Album struct {
 	Shortcut            string        `json:"shortcut"`
 	Href                string        `json:"href"`
 	Name                string        `json:"name"`
-	Released            time.Time     `json:"released"`
-	OriginallyReleased  time.Time     `json:"originallyReleased"`
+	Released            string     `json:"released"`
+	OriginallyReleased  string     `json:"originallyReleased"`
 	Label               string        `json:"label"`
 	Copyright           string        `json:"copyright"`
 	Tags                []interface{} `json:"tags"`
