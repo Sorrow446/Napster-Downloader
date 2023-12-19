@@ -33,9 +33,9 @@ import (
 const (
 	apiBase   = "https://api.napster.com/"
 	apiKey    = "ZTJlOWNhZGUtNzlmZS00ZGU2LTkwYjMtZDk1ODRlMDkwODM5"
-	authToken = "Basic WlRKbE9XTmhaR1V0TnpsbVpTMDBaR1UyTFRrd1lqTXRaRGsxT0RS" +
-		"bE1Ea3dPRE01Ok1UUmpaVFZqTTJFdE9HVmxaaTAwT1RVM0xXRm1Oamt0TlRsbE9ERmhObVl5TnpJNQ=="
-	userAgent     = "android/8.0.1.1012/NapsterGlobal"
+	authToken = "Basic WlRKbE9XTmhaR1V0TnpsbVpTMDBaR1UyTFRrd1lqTX"+
+		"RaRGsxT0RSbE1Ea3dPRE01Ok1UUmpaVFZqTTJFdE9HVmxaaTAwT1RVM0xXRm1Oamt0TlRsbE9ERmhObVl5TnpJNQ=="
+	userAgent     = "android/8.3.4.1091/NapsterGlobal"
 	regexString   = `^http(?:s|)://(?:play|web).napster.com/album/([aA]lb.\d+)(?:/|)$`
 	trackTemplate = "{{.trackPad}}. {{.title}}"
 	albumTemplate = "{{.albumArtist}} - {{.album}}"
