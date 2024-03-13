@@ -30,7 +30,7 @@ If you don't have root in Linux, you can have Nugs Downloader look for the binar
 |Type|URL example|
 | --- | --- |
 |Album|`https://web.napster.com/album/alb.60702691`
-|Video|`https://play.napster.com/video/659fc58a3eb69030781a4969`,
+|Video|`https://play.napster.com/video/659fc58a3eb69030781a4969`
 
 # Usage
 Args take priority over the same config file options.
