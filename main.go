@@ -1,26 +1,24 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
+	"sort"
 	"errors"
 	"fmt"
 	"html"
 	"html/template"
 	"io"
-	"io/ioutil"
 	"net/http"
-	"net/http/cookiejar"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
-
+	"main/api"
+	"main/utils"
+	"os/exec"
 	"github.com/Sorrow446/go-mp4tag"
 	"github.com/alexflint/go-arg"
 	"github.com/bogem/id3v2"
@@ -28,31 +26,20 @@ import (
 	"github.com/go-flac/flacpicture"
 	"github.com/go-flac/flacvorbis"
 	"github.com/go-flac/go-flac"
+	"github.com/grafov/m3u8"
 )
 
 const (
-	apiBase   = "https://api.napster.com/"
-	apiKey    = "ZTJlOWNhZGUtNzlmZS00ZGU2LTkwYjMtZDk1ODRlMDkwODM5"
-	authToken = "Basic WlRKbE9XTmhaR1V0TnpsbVpTMDBaR1UyTFRrd1lqTX"+
-		"RaRGsxT0RSbE1Ea3dPRE01Ok1UUmpaVFZqTTJFdE9HVmxaaTAwT1RVM0xXRm1Oamt0TlRsbE9ERmhObVl5TnpJNQ=="
-	userAgent     = "android/8.3.4.1091/NapsterGlobal"
-	regexString   = `^http(?:s|)://(?:play|web).napster.com/album/([aA]lb.\d+)(?:/|)$`
-	trackTemplate = "{{.trackPad}}. {{.title}}"
-	albumTemplate = "{{.albumArtist}} - {{.album}}"
-	coverUrl      = "http://direct-ns.rhapsody.com/imageserver/v2/albums/%s/images/600x600.jpg"
+	defTrackTemplate = "{{.trackPad}}. {{.title}}"
+	defAlbumTemplate = "{{.albumArtist}} - {{.album}}"
+	coverURL      = "http://direct-ns.rhapsody.com/imageserver/v2/albums/%s/images/600x600.jpg"
 )
 
-var (
-	jar, _ = cookiejar.New(nil)
-	client = &http.Client{Transport: &Transport{}, Jar: jar}
-)
-
-func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req.Header.Add(
-		"User-Agent", userAgent,
-	)
-	return http.DefaultTransport.RoundTrip(req)
+var regexStrings = [2]string{
+	`^http(?:s|)://(?:play|web).napster.com/album/([aA]lb.\d+)(?:/|)$`,
+	`^http(?:s|)://(?:play|web).napster.com/video/([a-z\d]+)(?:/|)$`,
 }
+
 
 func (wc *WriteCounter) Write(p []byte) (int, error) {
 	var speed int64 = 0
@@ -61,7 +48,7 @@ func (wc *WriteCounter) Write(p []byte) (int, error) {
 	percentage := float64(wc.Downloaded) / float64(wc.Total) * float64(100)
 	wc.Percentage = int(percentage)
 	toDivideBy := time.Now().UnixMilli() - wc.StartTime
-	if toDivideBy != 0 {
+	if toDivideBy > 0 {
 		speed = int64(wc.Downloaded) / toDivideBy * 1000
 	}
 	fmt.Printf("\r%d%% @ %s/s, %s/%s ", wc.Percentage, humanize.Bytes(uint64(speed)),
@@ -69,96 +56,23 @@ func (wc *WriteCounter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func handleErr(errText string, err error, _panic bool) {
-	errString := errText + "\n" + err.Error()
-	if _panic {
-		panic(errString)
-	}
-	fmt.Println(errString)
-}
-
-func wasRunFromSrc() bool {
-	buildPath := filepath.Join(os.TempDir(), "go-build")
-	return strings.HasPrefix(os.Args[0], buildPath)
-}
-
-func getScriptDir() (string, error) {
-	var (
-		ok    bool
-		err   error
-		fname string
-	)
-	runFromSrc := wasRunFromSrc()
-	if runFromSrc {
-		_, fname, _, ok = runtime.Caller(0)
-		if !ok {
-			return "", errors.New("Failed to get script filename.")
-		}
+func handleErr(err error, shouldPanic bool) {
+	// pc := make([]uintptr, 1)
+	// n := runtime.Callers(2, pc)
+	// frames := runtime.CallersFrames(pc[:n])
+	// frame, _ := frames.Next()
+	// e := fmt.Sprintf(
+	// 	"An error occured on line %d in function %s in file %s.\n%s",
+	// 	frame.Line, frame.Function, frame.File, err.Error())
+	// fmt.Println(e)
+	if shouldPanic {
+		panic(err)
 	} else {
-		fname, err = os.Executable()
-		if err != nil {
-			return "", err
-		}
+		fmt.Println(err.Error())
 	}
-	return filepath.Dir(fname), nil
 }
 
-func readTxtFile(path string) ([]string, error) {
-	var lines []string
-	f, err := os.OpenFile(path, os.O_RDONLY, 0755)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line != "" {
-			lines = append(lines, line)
-		}
-	}
-	if scanner.Err() != nil {
-		return nil, scanner.Err()
-	}
-	return lines, nil
-}
-
-func contains(lines []string, value string) bool {
-	for _, line := range lines {
-		if strings.EqualFold(line, value) {
-			return true
-		}
-	}
-	return false
-}
-
-func processUrls(urls []string) ([]string, error) {
-	var (
-		processed []string
-		txtPaths  []string
-	)
-	for _, _url := range urls {
-		if strings.HasSuffix(_url, ".txt") && !contains(txtPaths, _url) {
-			txtLines, err := readTxtFile(_url)
-			if err != nil {
-				return nil, err
-			}
-			for _, txtLine := range txtLines {
-				if !contains(processed, txtLine) {
-					processed = append(processed, txtLine)
-				}
-			}
-			txtPaths = append(txtPaths, _url)
-		} else {
-			if !contains(processed, _url) {
-				processed = append(processed, _url)
-			}
-		}
-	}
-	return processed, nil
-}
-
-func parseCfg() (*Config, error) {
+func parseConfig() (*Config, error) {
 	cfg, err := readConfig()
 	if err != nil {
 		return nil, err
@@ -173,19 +87,34 @@ func parseCfg() (*Config, error) {
 	if args.OutPath != "" {
 		cfg.OutPath = args.OutPath
 	}
-	if cfg.OutPath == "" {
+	if strings.TrimSpace(cfg.OutPath) == "" {
 		cfg.OutPath = "Napster downloads"
 	}
-	cfg.Urls, err = processUrls(args.Urls)
+
+	if strings.TrimSpace(cfg.AlbumTemplate) == "" {
+		cfg.AlbumTemplate = defAlbumTemplate
+	}
+
+	if strings.TrimSpace(cfg.TrackTemplate) == "" {
+		cfg.TrackTemplate = defTrackTemplate
+	}
+
+	if cfg.UseFFmpegEnvVar {
+		cfg.FFmpegNameStr = "ffmpeg"
+	} else {
+		cfg.FFmpegNameStr = "./ffmpeg"
+	}
+
+	cfg.Urls, err = utils.ProcessUrls(args.Urls)
 	if err != nil {
-		errString := "Failed to process URLs.\n" + err.Error()
-		return nil, errors.New(errString)
+		fmt.Println("Failed to process URLs.")
+		return nil, err
 	}
 	return cfg, nil
 }
 
 func readConfig() (*Config, error) {
-	data, err := ioutil.ReadFile("config.json")
+	data, err := os.ReadFile("config.json")
 	if err != nil {
 		return nil, err
 	}
@@ -203,107 +132,22 @@ func parseArgs() *Args {
 	return &args
 }
 
-func makeDirs(path string) error {
-	return os.MkdirAll(path, 0755)
+func checkUrl(_url string) (string, int) {
+	splitUrl := strings.SplitN(_url, "?", 2)
+	if len(splitUrl) > 1 {
+		_url = splitUrl[0]
+	}
+	for idx, regexString := range regexStrings {
+		regex := regexp.MustCompile(regexString)
+		match := regex.FindStringSubmatch(_url)
+		if match != nil {
+			return match[1], idx
+		}
+	}
+	return "", -1
 }
 
-func fileExists(path string) (bool, error) {
-	f, err := os.Stat(path)
-	if err == nil {
-		return !f.IsDir(), nil
-	} else if os.IsNotExist(err) {
-		return false, nil
-	}
-	return false, err
-}
-
-func checkUrl(_url string) string {
-	regex := regexp.MustCompile(regexString)
-	match := regex.FindStringSubmatch(_url)
-	if match != nil {
-		return match[1]
-	}
-	return ""
-}
-
-func auth(email, password string) (string, error) {
-	data := url.Values{}
-	data.Set("username", email)
-	data.Set("password", password)
-	data.Set("grant_type", "password")
-	req, err := http.NewRequest(
-		http.MethodPost, apiBase+"oauth/token", strings.NewReader(data.Encode()))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Authorization", authToken)
-	do, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer do.Body.Close()
-	if do.StatusCode != http.StatusOK {
-		return "", errors.New(do.Status)
-	}
-	var obj Auth
-	err = json.NewDecoder(do.Body).Decode(&obj)
-	if err != nil {
-		return "", err
-	}
-	return "Bearer " + obj.AccessToken, nil
-}
-
-func getUserInfo(token string) (*UserInfo, error) {
-	req, err := http.NewRequest(http.MethodGet, apiBase+"v3/me", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Authorization", token)
-	do, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer do.Body.Close()
-	if do.StatusCode != http.StatusOK {
-		return nil, errors.New(do.Status)
-	}
-	var obj UserInfo
-	err = json.NewDecoder(do.Body).Decode(&obj)
-	if err != nil {
-		return nil, err
-	}
-	return &obj, nil
-}
-
-func getAlbumMeta(albumId, catalog, lang string) (*AlbumMeta, error) {
-	req, err := http.NewRequest(http.MethodGet, apiBase+"v2.2/albums/"+albumId, nil)
-	if err != nil {
-		return nil, err
-	}
-	query := url.Values{}
-	query.Set("catalog", catalog)
-	query.Set("lang", lang)
-	query.Set("rights", "2")
-	req.URL.RawQuery = query.Encode()
-	req.Header.Add("apikey", apiKey)
-	do, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer do.Body.Close()
-	if do.StatusCode != http.StatusOK {
-		return nil, errors.New(do.Status)
-	}
-	var obj AlbumMeta
-	err = json.NewDecoder(do.Body).Decode(&obj)
-	if err != nil {
-		return nil, err
-	}
-	return &obj, nil
-}
-
-func parseAlbumMeta(meta *Album) map[string]string {
+func parseAlbumMeta(meta *api.Album) map[string]string {
 	released := meta.OriginallyReleased
 	if released != "" {
 		released = released[:4]
@@ -323,24 +167,26 @@ func parseAlbumMeta(meta *Album) map[string]string {
 func parseTemplate(templateText string, tags map[string]string, isAlbum bool) string {
 	var defTemplate string
 	if isAlbum {
-		defTemplate = albumTemplate
+		defTemplate = defAlbumTemplate
 	} else {
-		defTemplate = trackTemplate
+		defTemplate = defTrackTemplate
 	}
 	var buffer bytes.Buffer
 	for {
-		err := template.Must(template.New("").Parse(templateText)).Execute(&buffer, tags)
+		err := template.Must(
+			template.New("").Parse(templateText)).Execute(&buffer, tags)
 		if err == nil {
 			break
 		}
-		fmt.Println("Failed to parse template. Default one will be used instead.")
+		fmt.Println(
+			"Failed to parse template; default one will be used instead.")
 		templateText = defTemplate
 		buffer.Reset()
 	}
 	return html.UnescapeString(buffer.String())
 }
 
-func parseTrackMeta(meta *Track, albMeta map[string]string, trackNum, trackTotal int) map[string]string {
+func parseTrackMeta(meta *api.Track, albMeta map[string]string, trackNum, trackTotal int) map[string]string {
 	albMeta["artist"] = meta.ArtistName
 	albMeta["isrc"] = meta.ISRC
 	albMeta["title"] = meta.Name
@@ -350,55 +196,18 @@ func parseTrackMeta(meta *Track, albMeta map[string]string, trackNum, trackTotal
 	return albMeta
 }
 
-func getAlbTrackskMeta(albumId, catalog, lang string) (*AlbumTracksMeta, error) {
-	req, err := http.NewRequest(http.MethodGet, apiBase+"v2.2/albums/"+albumId+"/tracks", nil)
-	if err != nil {
-		return nil, err
-	}
-	query := url.Values{}
-	query.Set("catalog", catalog)
-	query.Set("lang", lang)
-	query.Set("rights", "2")
-	req.URL.RawQuery = query.Encode()
-	req.Header.Add("apikey", apiKey)
-	do, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer do.Body.Close()
-	if do.StatusCode != http.StatusOK {
-		return nil, errors.New(do.Status)
-	}
-	var obj AlbumTracksMeta
-	err = json.NewDecoder(do.Body).Decode(&obj)
-	if err != nil {
-		return nil, err
-	}
-	return &obj, nil
-}
-
-func sanitise(filename string, isFolder bool) string {
-	var regexStr string
-	if isFolder {
-		regexStr = `[:*?"><|]`
-	} else {
-		regexStr = `[\/:*?"><|]`
-	}
-	return regexp.MustCompile(regexStr).ReplaceAllString(filename, "_")
-}
-
-func getNextBestFmt(wantedFmt int, formats map[int]Format) Format {
+func getNextBestFmt(wantedFmt int, formats map[int]*api.Format) *api.Format {
 	for i := wantedFmt - 1; i > 0; i-- {
 		format, ok := formats[i]
 		if ok {
 			return format
 		}
 	}
-	return Format{}
+	return nil
 }
 
-func selectFormat(wantedFmt int, track *Track) *Format {
-	parsedFmts := map[int]Format{}
+func selectFormat(wantedFmt int, track *api.Track) *api.Format {
+	parsedFmts := map[int]*api.Format{}
 	if len(track.LosslessFormats) > 0 {
 		parsedFmts[5] = track.LosslessFormats[0]
 	}
@@ -421,80 +230,41 @@ func selectFormat(wantedFmt int, track *Track) *Format {
 	selectedFmt, ok := parsedFmts[wantedFmt]
 	if !ok {
 		selectedFmt = getNextBestFmt(wantedFmt, parsedFmts)
-		fmt.Println("Unavailable in your chosen format. Will use next best.")
+		fmt.Println("Unavailable in your chosen format; will use next best.")
 	}
-	return &selectedFmt
+	return selectedFmt
 }
 
-func getStreamMeta(trackId, token string, format *Format) (*StreamMeta, error) {
-	req, err := http.NewRequest(http.MethodGet, apiBase+"v3/streams/tracks", nil)
-	if err != nil {
-		return nil, err
-	}
-	query := url.Values{}
-	query.Set("bitDepth", strconv.Itoa(format.SampleBits))
-	query.Set("bitrate", strconv.Itoa(format.Bitrate))
-	query.Set("format", format.Name)
-	query.Set("id", trackId)
-	query.Set("sampleRate", strconv.Itoa(format.SampleRate))
-	req.URL.RawQuery = query.Encode()
-	req.Header.Add("Authorization", token)
-	do, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer do.Body.Close()
-	if do.StatusCode != http.StatusOK {
-		return nil, errors.New(do.Status)
-	}
-	var obj StreamMeta
-	err = json.NewDecoder(do.Body).Decode(&obj)
-	if err != nil {
-		return nil, err
-	}
-	return &obj, nil
-}
-
-func formatFreq(freq int) string {
-	freqStr := strconv.Itoa(freq / 100)
-	if strings.HasSuffix(freqStr, "0") {
-		return strconv.Itoa(freq / 1000)
-	} else {
-		freqStrLen := len(freqStr)
-		return freqStr[:freqStrLen-1] + "." + freqStr[freqStrLen-1:]
-	}
-}
-
-func parseSpecs(format *Format) (string, string) {
+func parseSpecs(format *api.Format) (string, string) {
 	var (
 		specs string
 		ext   string
 	)
-	switch formatName := format.Name; {
-	case formatName == "AAC PLUS":
-		specs = strconv.Itoa(format.Bitrate) + " Kbps AAC"
+
+	bitrateStr := strconv.Itoa(format.Bitrate)
+	switch format.Name {
+	case "AAC", "AAC PLUS":
+		specs = bitrateStr + " Kbps AAC"
 		ext = ".m4a"
-	case formatName == "MP3":
-		specs = strconv.Itoa(format.Bitrate) + " Kbps MP3"
+	case "MP3":
+		specs =  bitrateStr + " Kbps MP3"
 		ext = ".mp3"
-	case formatName == "AAC":
-		specs = strconv.Itoa(format.Bitrate) + " Kbps AAC"
-		ext = ".m4a"
-	case formatName == "FLAC":
-		specs = fmt.Sprintf("%d-bit / %s kHz FLAC", format.BitDepth, formatFreq(format.Bitrate))
+	case "FLAC":
+		specs = fmt.Sprintf(
+			"%d-bit / %s kHz FLAC", format.SampleBits, utils.FormatFreq(format.Bitrate))
 		ext = ".flac"
 	}
 	return specs, ext
 }
 
-func downloadCover(albumId, path string) error {
-	_url := fmt.Sprintf(coverUrl, albumId)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
+func downloadCover(client *api.Client, albumID, path string) error {
+	_url := fmt.Sprintf(coverURL, albumID)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0777)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	req, err := client.Get(_url)
+	req, err := client.Client.Get(_url)
 	if err != nil {
 		return err
 	}
@@ -506,8 +276,8 @@ func downloadCover(albumId, path string) error {
 	return err
 }
 
-func downloadTrack(trackPath, url string) error {
-	f, err := os.OpenFile(trackPath, os.O_CREATE|os.O_WRONLY, 0755)
+func downloadTrack(client *api.Client, trackPath, url string) error {
+	f, err := os.OpenFile(trackPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0777)
 	if err != nil {
 		return err
 	}
@@ -517,7 +287,7 @@ func downloadTrack(trackPath, url string) error {
 		return err
 	}
 	req.Header.Add("Range", "bytes=0-")
-	do, err := client.Do(req)
+	do, err := client.Client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -536,7 +306,7 @@ func downloadTrack(trackPath, url string) error {
 	return err
 }
 
-func writeAacTags(trackPath string, tags map[string]string, coverBytes []byte) error {
+func writeMP4Tags(trackPath string, tags map[string]string, coverData []byte) error {
 	trackNum, err := strconv.Atoi(tags["track"])
 	if err != nil {
 		return err
@@ -545,27 +315,40 @@ func writeAacTags(trackPath string, tags map[string]string, coverBytes []byte) e
 	if err != nil {
 		return err
 	}
-	_tags := &mp4tag.Tags{
+
+	year, err := strconv.ParseInt(tags["year"], 10, 32)
+	if err != nil {
+		return err
+	}
+
+	t := &mp4tag.MP4Tags{
 		Album:       tags["album"],
 		AlbumArtist: tags["albumArtist"],
 		Copyright:   tags["copyright"],
 		Custom: map[string]string{
 			"ISRC": tags["isrc"],
 			"UPC":  tags["upc"],
+			"LABEL": tags["label"],
 		},
-		Label:       tags["label"],
 		Title:       tags["title"],
-		TrackNumber: trackNum,
-		TrackTotal:  trackTotal,
-		Year:        tags["year"],
+		TrackNumber: int16(trackNum),
+		TrackTotal:  int16(trackTotal),
+		Year:        int32(year),
 	}
-	if coverBytes != nil {
-		_tags.Cover = coverBytes
+	if coverData != nil {
+		t.Pictures = []*mp4tag.MP4Picture{&mp4tag.MP4Picture{Data: coverData}}
 	}
-	return mp4tag.Write(trackPath, _tags)
+
+	mp4, err := mp4tag.Open(trackPath)
+	if err != nil {
+		panic(err)
+	}
+	defer mp4.Close()
+
+	return mp4.Write(t, []string{})
 }
 
-func writeMp3Tags(trackPath string, tags map[string]string, coverBytes []byte) error {
+func writeMP3Tags(trackPath string, tags map[string]string, coverData []byte) error {
 	tags["track"] += "/" + tags["trackTotal"]
 	resolve := map[string]string{
 		"album":       "TALB",
@@ -589,19 +372,19 @@ func writeMp3Tags(trackPath string, tags map[string]string, coverBytes []byte) e
 			tag.AddTextFrame(resolved, tag.DefaultEncoding(), v)
 		}
 	}
-	if coverBytes != nil {
+	if coverData != nil {
 		imgFrame := id3v2.PictureFrame{
 			Encoding:    id3v2.EncodingUTF8,
 			MimeType:    "image/jpeg",
 			PictureType: id3v2.PTFrontCover,
-			Picture:     coverBytes,
+			Picture:     coverData,
 		}
 		tag.AddAttachedPicture(imgFrame)
 	}
 	return tag.Save()
 }
 
-func writeFlacTags(trackPath string, tags map[string]string, coverBytes []byte) error {
+func writeFLACTags(trackPath string, tags map[string]string, coverData []byte) error {
 	f, err := flac.ParseFile(trackPath)
 	if err != nil {
 		return err
@@ -612,9 +395,9 @@ func writeFlacTags(trackPath string, tags map[string]string, coverBytes []byte) 
 	}
 	tagMeta := tag.Marshal()
 	f.Meta = append(f.Meta, &tagMeta)
-	if coverBytes != nil {
+	if coverData != nil {
 		picture, err := flacpicture.NewFromImageData(
-			flacpicture.PictureTypeFrontCover, "", coverBytes, "image/jpeg",
+			flacpicture.PictureTypeFrontCover, "", coverData, "image/jpeg",
 		)
 		if err != nil {
 			return err
@@ -628,10 +411,10 @@ func writeFlacTags(trackPath string, tags map[string]string, coverBytes []byte) 
 func writeTags(trackPath, coverPath, ext string, tags map[string]string) error {
 	var (
 		err        error
-		coverBytes []byte
+		coverData []byte
 	)
 	if coverPath != "" {
-		coverBytes, err = ioutil.ReadFile(coverPath)
+		coverData, err = os.ReadFile(coverPath)
 		if err != nil {
 			return err
 		}
@@ -639,12 +422,276 @@ func writeTags(trackPath, coverPath, ext string, tags map[string]string) error {
 	delete(tags, "trackPad")
 	switch {
 	case ext == ".m4a":
-		err = writeAacTags(trackPath, tags, coverBytes)
+		err = writeMP4Tags(trackPath, tags, coverData)
 	case ext == ".mp3":
-		err = writeMp3Tags(trackPath, tags, coverBytes)
+		err = writeMP3Tags(trackPath, tags, coverData)
 	case ext == ".flac":
-		err = writeFlacTags(trackPath, tags, coverBytes)
+		err = writeFLACTags(trackPath, tags, coverData)
 	}
+	return err
+}
+
+func processAlbum(client *api.Client, id string, config *Config) error {
+	albumMeta, err := client.GetAlbumMeta(id)
+	if err != nil {
+		fmt.Println("Failed to get album metadata.")
+		return err
+	}
+	parsedAlbMeta := parseAlbumMeta(albumMeta)
+	albumFolder := parseTemplate(config.AlbumTemplate, parsedAlbMeta, true)
+	fmt.Println(parsedAlbMeta["albumArtist"] + " - " + parsedAlbMeta["album"])
+	if len(albumFolder) > 140 {
+		fmt.Println("Album folder was chopped as it exceeds 140 characters.")
+		albumFolder = albumFolder[:140]
+	}
+	sanAlbumFolder := utils.Sanitise(albumFolder, true)
+	albumPath := filepath.Join(config.OutPath, strings.TrimSuffix(sanAlbumFolder, "."))
+	err = utils.MakeDirs(albumPath)
+	if err != nil {
+		return err
+	}
+	albTracksMeta, err := client.GetAlbTracksMeta(id)
+	if err != nil {
+		return err	
+	}
+	trackTotal := len(albTracksMeta)
+
+	coverPath := filepath.Join(albumPath, "cover.jpg")
+	err = downloadCover(client, id, coverPath)
+	if err != nil {
+		handleErr(err, false)
+		coverPath = ""
+	}
+	for trackNum, track := range albTracksMeta {
+		trackNum++
+		if !track.IsStreamable {
+			fmt.Println("Track isn't streamable.")
+			continue
+		}
+		parsedMeta := parseTrackMeta(track, parsedAlbMeta, trackNum, trackTotal)
+		selFormat := selectFormat(config.Format, track)
+		if selFormat == nil {
+			fmt.Println("No format was selected.")
+			continue
+		}
+		streamMeta, err := client.GetStreamMeta(track.ID, selFormat)
+		if err != nil {
+			handleErr(err, false)
+			continue
+		}
+
+		trackFname := parseTemplate(config.TrackTemplate, parsedMeta, false)
+		sanTrackFname := utils.Sanitise(trackFname, false)
+		specs, ext := parseSpecs(selFormat)
+		trackPathNoExt := filepath.Join(albumPath, sanTrackFname)
+		trackPathIncomp := trackPathNoExt + ".incomplete"
+		trackPath := trackPathNoExt+ext
+
+		exists, err := utils.FileExists(trackPath)
+		if err != nil {
+			handleErr(err, false)
+			continue
+		}
+		if exists {
+			fmt.Println("Track already exists locally.")
+			continue
+		}
+		fmt.Printf(
+			"Downloading track %d of %d: %s - %s\n", trackNum, trackTotal, parsedMeta["title"],
+			specs,
+		)
+		err = downloadTrack(client, trackPathIncomp, streamMeta.PrimaryURL)
+		if err != nil {
+			handleErr(err, false)
+			continue
+		}
+		err = writeTags(trackPathIncomp, coverPath, ext, parsedMeta)
+		if err != nil {
+			handleErr(err, false)
+		}
+
+		err = os.Rename(trackPathIncomp, trackPath)
+		if err != nil {
+			handleErr(err, false)
+		}
+	}
+	if coverPath != "" && !config.KeepCover {
+		err := os.Remove(coverPath)
+		if err != nil {
+			handleErr(err, false)
+		}
+	}
+	return nil
+}
+
+func getPlaylist(client *api.Client, _url string) (m3u8.Playlist, error) {
+	resp, err := client.Client.Get(_url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New(resp.Status)
+	}
+	playlist, _, err := m3u8.DecodeFrom(resp.Body, true)
+	if err != nil {
+		return nil, err
+	}
+	return playlist, nil
+}
+
+func getMasterPlaylist(client *api.Client, _url string) (*m3u8.MasterPlaylist, error) {
+	playlist, err := getPlaylist(client, _url)
+	if err != nil {
+		return nil, err
+	}
+	return playlist.(*m3u8.MasterPlaylist), nil
+}
+
+func getMediaPlaylist(client *api.Client, _url string) (*m3u8.MediaPlaylist, error) {
+	playlist, err := getPlaylist(client, _url)
+	if err != nil {
+		return nil, err
+	}
+	return playlist.(*m3u8.MediaPlaylist), nil
+}
+
+func selectMasterVariant(master *m3u8.MasterPlaylist) *m3u8.Variant {
+	sort.Slice(master.Variants, func(x, y int) bool {
+		return master.Variants[x].Bandwidth > master.Variants[y].Bandwidth
+	})
+	return master.Variants[0]
+}
+
+func formatResolution(res string) string {
+	splitRes := strings.SplitN(res, "x", 2)
+	if len(splitRes) < 2 {
+		return "?"
+	}
+	yRes := splitRes[1]
+	if yRes == "2160" {
+		return "4K"
+	} else {
+		return yRes + "p" 
+	}
+}
+
+func getPlistBaseURL(_url string) string {
+	lastIdx := strings.LastIndex(_url, "/")
+	return _url[:lastIdx+1]
+}
+
+func getSegPaths(media *m3u8.MediaPlaylist) []string {
+	var segPaths []string
+	for _, seg := range media.Segments {
+		if seg == nil {
+			break
+		}
+		segPaths = append(segPaths, seg.URI)
+	}
+	return segPaths
+}
+
+func downloadSegs(client *api.Client, segPaths []string, baseURL, outPath string) error {
+	f, err := os.OpenFile(outPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0777)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	segTotal := len(segPaths)
+	for segNum, segPath := range segPaths {
+		segNum++
+		fmt.Printf("\rSegment %d of %d.", segNum, segTotal)
+		if err != nil {
+			return err
+		}
+		do, err := client.Client.Get(baseURL+segPath)
+		if err != nil {
+			return err
+		}
+		if do.StatusCode != http.StatusOK {
+			do.Body.Close()
+			return errors.New(do.Status)
+		}
+		_, err = io.Copy(f, do.Body)
+		do.Body.Close()
+		if err != nil {
+			return err
+		}
+	}
+	fmt.Println("")
+	return nil
+}
+
+func tsToMP4(ffmpegNameStr, inPath, outPath string) error {
+	var errBuffer bytes.Buffer
+	cmd := exec.Command(
+		ffmpegNameStr, "-hide_banner", "-loglevel", "fatal", "-i", inPath,
+		"-c", "copy", outPath)
+	cmd.Stderr = &errBuffer
+	err := cmd.Run()
+	if err != nil {
+		errString := fmt.Sprintf("%s\n%s", err, errBuffer.String())
+		return errors.New(errString)
+	}
+	return nil
+}
+
+func processVideo(client *api.Client, id string, config *Config) error {
+	videoMeta, err := client.GetVideoMeta(id)
+	if err != nil {
+		return err
+	}
+
+	outFname := videoMeta.ContributingArtists[0].Name + " - " + videoMeta.Name
+	fmt.Println(outFname)
+	streamMeta, err := client.GetVideoStreamMeta(id)
+	if err != nil {
+		return err
+	}
+
+	masterPlistURL := streamMeta.PrimaryURL
+	master, err := getMasterPlaylist(client, masterPlistURL)
+	if err != nil {
+		return err
+	}
+
+	selVariant := selectMasterVariant(master)
+	fmtRes := formatResolution(selVariant.Resolution)
+	fmt.Printf("%.3f FPS, ~%d kbps, %s (%s)\n",
+		selVariant.FrameRate, selVariant.Bandwidth/1000, fmtRes, selVariant.Resolution)	
+	
+	sanVideoFname := utils.Sanitise(outFname, false)
+	videoPathNoExt := filepath.Join(config.OutPath, sanVideoFname)
+	videoPathIncomp := videoPathNoExt + ".incomplete.ts"
+	videoPath := videoPathNoExt+".mp4"
+
+	exists, err := utils.FileExists(videoPath)	
+	if err != nil {
+		return err
+	}
+
+	if exists {
+		fmt.Println("Video already exists locally.")
+		return nil
+	}
+
+	plistBaseURL := getPlistBaseURL(masterPlistURL)
+	media, err := getMediaPlaylist(client, plistBaseURL + selVariant.URI)
+	if err != nil {
+		return err
+	}
+	segPaths := getSegPaths(media)
+	err = downloadSegs(client, segPaths, plistBaseURL, videoPathIncomp)
+	if err != nil {
+		return err
+	}
+	err = tsToMP4(config.FFmpegNameStr, videoPathIncomp, videoPath)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(videoPathIncomp)
 	return err
 }
 
@@ -659,139 +706,43 @@ func init() {
 }
 
 func main() {
-	scriptDir, err := getScriptDir()
+	err := utils.CDToScriptDir()
 	if err != nil {
 		panic(err)
 	}
-	err = os.Chdir(scriptDir)
+	config, err := parseConfig()
 	if err != nil {
-		panic(err)
+		handleErr(err, true)
 	}
-	cfg, err := parseCfg()
+	err = utils.MakeDirs(config.OutPath)
 	if err != nil {
-		handleErr("Failed to parse config/args.", err, true)
+		handleErr(err, true)
 	}
-	err = makeDirs(cfg.OutPath)
+	client, err := api.NewClient(config.Email, config.Password)
 	if err != nil {
-		handleErr("Failed to make output folder.", err, true)
+		handleErr(err, true)
 	}
-	token, err := auth(cfg.Email, cfg.Password)
-	if err != nil {
-		handleErr("Failed to auth.", err, true)
-	}
-	userInfo, err := getUserInfo(token)
-	if err != nil {
-		handleErr("Failed to get subcription info.", err, true)
-	}
-	subName := userInfo.Subscription.ProductName
+	subName := client.User.SubName
 	if subName == "" {
 		panic("Account subscription required.")
 	}
 	fmt.Println("Signed in successfully - " + subName + "\n")
-	catalog := userInfo.Subscription.Catalog
-	lang := userInfo.Lang
-	albumTotal := len(cfg.Urls)
-	for albumNum, _url := range cfg.Urls {
-		fmt.Printf("Album %d of %d:\n", albumNum+1, albumTotal)
-		albumId := checkUrl(_url)
-		if albumId == "" {
+	urlTotal := len(config.Urls)
+	for urlNum, _url := range config.Urls {
+		fmt.Printf("URL %d of %d:\n", urlNum+1, urlTotal)
+		id, urlType := checkUrl(_url)
+		if id == "" {
 			fmt.Println("Invalid URL:", _url)
 			continue
 		}
-		_albumMeta, err := getAlbumMeta(albumId, catalog, lang)
+		switch urlType {
+		case 0:
+			err = processAlbum(client, id, config)
+		case 1:
+			err = processVideo(client, id, config)
+		}
 		if err != nil {
-			handleErr("Failed to get album metadata.", err, false)
-			continue
-		}
-		if !(len(_albumMeta.Albums) > 0) {
-			fmt.Println("The API didn't return album metadata.")
-			continue
-		}
-		albumMeta := _albumMeta.Albums[0]
-		parsedAlbMeta := parseAlbumMeta(&albumMeta)
-		albumFolder := parseTemplate(cfg.AlbumTemplate, parsedAlbMeta, true)
-		fmt.Println(parsedAlbMeta["albumArtist"] + " - " + parsedAlbMeta["album"])
-		if len(albumFolder) > 120 {
-			fmt.Println("Album folder was chopped as it exceeds 120 characters.")
-			albumFolder = albumFolder[:120]
-		}
-		sanAlbumFolder := sanitise(albumFolder, true)
-		albumPath := filepath.Join(cfg.OutPath, strings.TrimSuffix(sanAlbumFolder, "."))
-		err = makeDirs(albumPath)
-		if err != nil {
-			handleErr("Failed to make album folder.", err, false)
-			continue
-		}
-		albTracksMeta, err := getAlbTrackskMeta(albumId, catalog, lang)
-		if err != nil {
-			handleErr("Failed to get album tracks metadata.", err, false)
-			continue
-		}
-		trackTotal := len(albTracksMeta.Tracks)
-		if !(trackTotal > 0) {
-			fmt.Println("The API didn't return album tracks metadata.")
-			continue
-		}
-		coverPath := filepath.Join(albumPath, "cover.jpg")
-		err = downloadCover(albumId, coverPath)
-		if err != nil {
-			handleErr("Failed to get cover.", err, false)
-			coverPath = ""
-		}
-		for trackNum, track := range albTracksMeta.Tracks {
-			trackNum++
-			if !track.IsStreamable {
-				fmt.Println("Track isn't streamable.")
-				continue
-			}
-			parsedMeta := parseTrackMeta(&track, parsedAlbMeta, trackNum, trackTotal)
-			selFormat := selectFormat(cfg.Format, &track)
-			if selFormat == nil {
-				fmt.Println("No format was selected.")
-				continue
-			}
-			streamMeta, err := getStreamMeta(track.ID, token, selFormat)
-			if err != nil {
-				handleErr("Failed to get track stream metadata.", err, false)
-				continue
-			}
-			if streamMeta.Meta.ReturnedCount == 0 {
-				fmt.Println("The API didn't return the stream metadata.")
-				continue
-			}
-			stream := streamMeta.Streams[0]
-			trackFname := parseTemplate(cfg.TrackTemplate, parsedMeta, false)
-			sanTrackFname := sanitise(trackFname, false)
-			specs, ext := parseSpecs(&stream.Format)
-			trackPath := filepath.Join(albumPath, sanTrackFname+ext)
-			exists, err := fileExists(trackPath)
-			if err != nil {
-				handleErr("Failed to check if track already exists locally.", err, false)
-				continue
-			}
-			if exists {
-				fmt.Println("Track already exists locally.")
-				continue
-			}
-			fmt.Printf(
-				"Downloading track %d of %d: %s - %s\n", trackNum, trackTotal, parsedMeta["title"],
-				specs,
-			)
-			err = downloadTrack(trackPath, stream.PrimaryURL)
-			if err != nil {
-				handleErr("Failed to download track.", err, false)
-				continue
-			}
-			err = writeTags(trackPath, coverPath, ext, parsedMeta)
-			if err != nil {
-				handleErr("Failed to write tags.", err, false)
-			}
-		}
-		if coverPath != "" && !cfg.KeepCover {
-			err := os.Remove(coverPath)
-			if err != nil {
-				handleErr("Failed to delete cover.", err, false)
-			}
+			handleErr(err, true)
 		}
 	}
 }

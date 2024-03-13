@@ -5,5 +5,6 @@
     "outPath": "Napster downloads",
     "albumTemplate": "{{.albumArtist}} - {{.album}}",
     "trackTemplate": "{{.trackPad}}. {{.title}}",
-    "keepCover": true
+    "keepCover": true,
+    "useFFmpegEnvVar": false
 }
