@@ -2,7 +2,7 @@
 Napster downloader written in Go.
 Updated version with lossless support.
 ![](https://i.imgur.com/O7MSizK.png)
-[Windows, Linux, macOS and Android binaries](https://github.com/Sorrow446/Napster-Downloader/releases)
+[Pre-compiled binaries](https://github.com/Sorrow446/Napster-Downloader/releases/latest)
 
 # Setup
 Input credentials into config file.
