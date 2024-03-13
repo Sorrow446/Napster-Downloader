@@ -16,7 +16,7 @@ Configure any other options if needed.
 |albumTemplate|Album folder naming template. Vars: album, albumArtist, copyright, label, upc, year.
 |trackTemplate|Track filename naming template. Vars: album, albumArtist, artist, copyright, isrc, label, title, track, trackPad, trackTotal, upc, year.
 |keepCover|true = don't delete covers from album folders.
-|useFfmpegEnvVar|true = call FFmpeg from environment variable, false = call from script dir.
+|useFFmpegEnvVar|true = call FFmpeg from environment variable, false = call from script dir.
 
 ## FFmpeg setup
 **FFmpeg is needed for ts -> MP4 losslessly for videos. You can skip this if you don't plan to download videos.**
