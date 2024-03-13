@@ -4,7 +4,7 @@ Updated version with lossless support.
 ![](https://i.imgur.com/O7MSizK.png)
 [Pre-compiled binaries](https://github.com/Sorrow446/Napster-Downloader/releases/latest)
 
-# Setup
+## Setup
 Input credentials into config file.
 Configure any other options if needed.
 |Option|Info|
@@ -18,7 +18,7 @@ Configure any other options if needed.
 |keepCover|true = don't delete covers from album folders.
 |useFfmpegEnvVar|true = call FFmpeg from environment variable, false = call from script dir.
 
-# FFmpeg setup
+## FFmpeg setup
 **FFmpeg is needed for ts -> MP4 losslessly for videos. You can skip this if you don't plan to download videos.**
 
 [Windows (gpl)](https://github.com/BtbN/FFmpeg-Builds/releases)    
@@ -32,7 +32,7 @@ If you don't have root in Linux, you can have Nugs Downloader look for the binar
 |Album|`https://web.napster.com/album/alb.60702691`
 |Video|`https://play.napster.com/video/659fc58a3eb69030781a4969`
 
-# Usage
+## Usage
 Args take priority over the same config file options.
 
 Download two albums with config file format:   
