@@ -20,6 +20,7 @@ Configure any other options if needed.
 
 # FFmpeg setup
 **FFmpeg is needed for ts -> MP4 losslessly for videos. You can skip this if you don't plan to download videos.**
+
 [Windows (gpl)](https://github.com/BtbN/FFmpeg-Builds/releases)    
 Linux: `sudo apt install ffmpeg`    
 Termux `pkg install ffmpeg`    
