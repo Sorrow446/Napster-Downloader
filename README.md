@@ -35,7 +35,7 @@ If you don't have root in Linux, you can have Nugs Downloader look for the binar
 ## Usage
 Args take priority over the same config file options.
 
-Download two albums with config file format:   
+Download two albums:   
 `np_dl_x64.exe https://web.napster.com/album/alb.60702691 https://play.napster.com/album/alb.64027739`
 
 Download a single album and from two text files in format 4:   
