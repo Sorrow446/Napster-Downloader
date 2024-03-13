@@ -16,7 +16,20 @@ Configure any other options if needed.
 |albumTemplate|Album folder naming template. Vars: album, albumArtist, copyright, label, upc, year.
 |trackTemplate|Track filename naming template. Vars: album, albumArtist, artist, copyright, isrc, label, title, track, trackPad, trackTotal, upc, year.
 |keepCover|true = don't delete covers from album folders.
+|useFfmpegEnvVar|true = call FFmpeg from environment variable, false = call from script dir.
 
+# FFmpeg setup
+**FFmpeg is needed for ts -> MP4 losslessly for videos. You can skip this if you don't plan to download videos.**
+[Windows (gpl)](https://github.com/BtbN/FFmpeg-Builds/releases)    
+Linux: `sudo apt install ffmpeg`    
+Termux `pkg install ffmpeg`    
+If you don't have root in Linux, you can have Nugs Downloader look for the binary in the same dir by setting the `useFfmpegEnvVar` option to false.
+
+## Supported Media
+|Type|URL example|
+| --- | --- |
+|Album|`https://web.napster.com/album/alb.60702691`
+|Video|`https://play.napster.com/video/659fc58a3eb69030781a4969`,
 
 # Usage
 Args take priority over the same config file options.
