@@ -106,7 +106,7 @@ func (c *Client) GetAlbumMeta(albumID string) (*Album, error) {
 		return nil, err
 	}
 	if len(obj.Albums) < 1 {
-		return nil, errors.New("The API didn't return any stream metadata.")
+		return nil, errors.New("The API didn't return any album metadata.")
 	}
 	return obj.Albums[0], nil
 }
@@ -136,7 +136,7 @@ func (c *Client) GetAlbTracksMeta(albumID string) ([]*Track, error) {
 		return nil, err
 	}
 	if len(obj.Tracks) < 1 {
-		return nil, errors.New("The API didn't return any album tracks meta.")
+		return nil, errors.New("The API didn't return any album tracks metadata.")
 	}
 	return obj.Tracks, nil
 }
