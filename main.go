@@ -508,6 +508,7 @@ func processAlbum(client *api.Client, id string, config *Config) error {
 		err = writeTags(trackPathIncomp, coverPath, ext, parsedMeta)
 		if err != nil {
 			handleErr(err, false)
+			continue
 		}
 
 		err = os.Rename(trackPathIncomp, trackPath)
