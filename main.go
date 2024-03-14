@@ -742,7 +742,7 @@ func main() {
 			err = processVideo(client, id, config)
 		}
 		if err != nil {
-			handleErr(err, true)
+			handleErr(err, false)
 		}
 	}
 }
